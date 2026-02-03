@@ -6,10 +6,11 @@ No terminal required - runs in your browser!
 import streamlit as st
 import feedparser
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import quote_plus
 import time
 import json
+from dateutil import parser as date_parser
 
 # Page configuration
 st.set_page_config(
@@ -39,11 +40,22 @@ def fetch_google_news_rss(keyword):
         feed = feedparser.parse(url)
         
         for entry in feed.entries:
+            # Parse the published date
+            published_str = entry.get('published', '')
+            published_date = None
+            
+            try:
+                if published_str:
+                    published_date = date_parser.parse(published_str)
+            except:
+                pass
+            
             article = {
                 'Keyword': keyword,
                 'Title': entry.get('title', ''),
                 'URL': entry.get('link', ''),
-                'Published': entry.get('published', ''),
+                'Published': published_str,
+                'Published_Date': published_date,
                 'Source': entry.get('source', {}).get('title', 'Unknown'),
                 'Description': entry.get('summary', '')
             }
@@ -192,6 +204,62 @@ def main():
             # Search
             search_term = st.text_input("🔍 Search in titles and descriptions", "")
             
+            # Date filter
+            st.subheader("📅 Date Filter")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Calculate min and max dates from data
+                valid_dates = df[df['Published_Date'].notna()]['Published_Date']
+                if len(valid_dates) > 0:
+                    min_date = valid_dates.min().date()
+                    max_date = valid_dates.max().date()
+                else:
+                    min_date = datetime.now().date() - timedelta(days=30)
+                    max_date = datetime.now().date()
+                
+                start_date = st.date_input(
+                    "From date",
+                    value=min_date,
+                    min_value=min_date,
+                    max_value=max_date
+                )
+            
+            with col2:
+                end_date = st.date_input(
+                    "To date",
+                    value=max_date,
+                    min_value=min_date,
+                    max_value=max_date
+                )
+            
+            # Quick date filters
+            st.write("Quick filters:")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                if st.button("Today"):
+                    start_date = datetime.now().date()
+                    end_date = datetime.now().date()
+            
+            with col2:
+                if st.button("Last 7 days"):
+                    start_date = (datetime.now() - timedelta(days=7)).date()
+                    end_date = datetime.now().date()
+            
+            with col3:
+                if st.button("Last 30 days"):
+                    start_date = (datetime.now() - timedelta(days=30)).date()
+                    end_date = datetime.now().date()
+            
+            with col4:
+                if st.button("All time"):
+                    if len(valid_dates) > 0:
+                        start_date = valid_dates.min().date()
+                        end_date = valid_dates.max().date()
+            
+            st.divider()
+            
             # Keyword filter
             selected_keywords = st.multiselect(
                 "Filter by keyword",
@@ -208,6 +276,19 @@ def main():
             
             # Apply filters
             filtered_df = df.copy()
+            
+            # Date filter
+            if 'Published_Date' in filtered_df.columns:
+                # Convert start and end dates to datetime for comparison
+                start_datetime = datetime.combine(start_date, datetime.min.time())
+                end_datetime = datetime.combine(end_date, datetime.max.time())
+                
+                date_mask = (
+                    (filtered_df['Published_Date'].isna()) |  # Include articles without dates
+                    ((filtered_df['Published_Date'] >= start_datetime) & 
+                     (filtered_df['Published_Date'] <= end_datetime))
+                )
+                filtered_df = filtered_df[date_mask]
             
             if search_term:
                 mask = (filtered_df['Title'].str.contains(search_term, case=False, na=False) | 
