@@ -212,8 +212,10 @@ def main():
                 # Calculate min and max dates from data
                 valid_dates = df[df['Published_Date'].notna()]['Published_Date']
                 if len(valid_dates) > 0:
-                    min_date = valid_dates.min().date()
-                    max_date = valid_dates.max().date()
+                    # Convert to datetime and remove timezone for date picker
+                    valid_dates_dt = pd.to_datetime(valid_dates).dt.tz_localize(None)
+                    min_date = valid_dates_dt.min().date()
+                    max_date = valid_dates_dt.max().date()
                 else:
                     min_date = datetime.now().date() - timedelta(days=30)
                     max_date = datetime.now().date()
@@ -237,26 +239,40 @@ def main():
             st.write("Quick filters:")
             col1, col2, col3, col4 = st.columns(4)
             
+            # Note: These buttons will update the date inputs in the next rerun
+            quick_filter = None
+            
             with col1:
                 if st.button("Today"):
-                    start_date = datetime.now().date()
-                    end_date = datetime.now().date()
+                    quick_filter = "today"
             
             with col2:
                 if st.button("Last 7 days"):
-                    start_date = (datetime.now() - timedelta(days=7)).date()
-                    end_date = datetime.now().date()
+                    quick_filter = "7days"
             
             with col3:
                 if st.button("Last 30 days"):
-                    start_date = (datetime.now() - timedelta(days=30)).date()
-                    end_date = datetime.now().date()
+                    quick_filter = "30days"
             
             with col4:
                 if st.button("All time"):
-                    if len(valid_dates) > 0:
-                        start_date = valid_dates.min().date()
-                        end_date = valid_dates.max().date()
+                    quick_filter = "all"
+            
+            # Apply quick filter
+            if quick_filter == "today":
+                start_date = datetime.now().date()
+                end_date = datetime.now().date()
+            elif quick_filter == "7days":
+                start_date = (datetime.now() - timedelta(days=7)).date()
+                end_date = datetime.now().date()
+            elif quick_filter == "30days":
+                start_date = (datetime.now() - timedelta(days=30)).date()
+                end_date = datetime.now().date()
+            elif quick_filter == "all":
+                if len(valid_dates) > 0:
+                    valid_dates_dt = pd.to_datetime(valid_dates).dt.tz_localize(None)
+                    start_date = valid_dates_dt.min().date()
+                    end_date = valid_dates_dt.max().date()
             
             st.divider()
             
@@ -280,14 +296,18 @@ def main():
             # Date filter
             if 'Published_Date' in filtered_df.columns:
                 # Convert start and end dates to datetime for comparison
-                start_datetime = datetime.combine(start_date, datetime.min.time())
-                end_datetime = datetime.combine(end_date, datetime.max.time())
+                start_datetime = pd.Timestamp(start_date)
+                end_datetime = pd.Timestamp(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
                 
-                date_mask = (
-                    (filtered_df['Published_Date'].isna()) |  # Include articles without dates
-                    ((filtered_df['Published_Date'] >= start_datetime) & 
-                     (filtered_df['Published_Date'] <= end_datetime))
-                )
+                # Filter by date, keeping articles without dates
+                date_mask = filtered_df['Published_Date'].isna()
+                if filtered_df['Published_Date'].notna().any():
+                    # Remove timezone info for comparison if present
+                    filtered_df['Published_Date_Compare'] = pd.to_datetime(filtered_df['Published_Date']).dt.tz_localize(None)
+                    date_mask = date_mask | (
+                        (filtered_df['Published_Date_Compare'] >= start_datetime) & 
+                        (filtered_df['Published_Date_Compare'] <= end_datetime)
+                    )
                 filtered_df = filtered_df[date_mask]
             
             if search_term:
